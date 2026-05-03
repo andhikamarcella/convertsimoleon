@@ -1,0 +1,52 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { CURRENCIES, CurrencyCode, formatCurrency, fromSimoleon, getRates } from "../lib/currency";
+
+type TxType = "income" | "expense";
+type Region = "Americas" | "Europe" | "Asia-Pacific";
+type Tx = { id:string; date:string; description:string; type:TxType; amountSim:number; localCurrency:CurrencyCode; localAmount:number; };
+type Stock = { symbol:string; name:string; price:number; change:number; history:number[] };
+
+const PAGE_SIZE = 5;
+const REGION_MAP: Record<Region, CurrencyCode[]> = { Americas:["USD","CAD","MXN","BRL"], Europe:["EUR","GBP","CHF","SEK","NOK"], "Asia-Pacific":["IDR","JPY","SGD","AUD","NZD","CNY","INR","KRW","THB","MYR","PHP"] };
+const STOCKS: Stock[] = [
+  {symbol:"PLMB",name:"Plumbob Dynamics",price:40,change:0,history:[40]}, {symbol:"SULS",name:"Sul Sul Studios",price:28,change:0,history:[28]},
+  {symbol:"BLDR",name:"Build Mode Works",price:66,change:0,history:[66]}, {symbol:"CASA",name:"CAS Atelier",price:21,change:0,history:[21]},
+  {symbol:"WOOH",name:"WooHoo Resorts",price:34,change:0,history:[34]}, {symbol:"GNOM",name:"Gnome Garden Co",price:18,change:0,history:[18]},
+  {symbol:"SIMC",name:"SimCity Utilities",price:55,change:0,history:[55]}, {symbol:"LAMA",name:"Llama Transit",price:24,change:0,history:[24]},
+  {symbol:"POOL",name:"No-Ladder Pools",price:48,change:0,history:[48]}, {symbol:"GRIM",name:"Grim Reaper Insurance",price:73,change:0,history:[73]}
+];
+
+export default function SimoleonApp(){
+const [displayCurrency,setDisplayCurrency]=useState<CurrencyCode>("IDR"); const [simoleonInput,setSimoleonInput]=useState(100); const [rates,setRates]=useState<Record<string,number>>({USD:1});
+const [balance,setBalance]=useState(0); const [txs,setTxs]=useState<Tx[]>([]); const [desc,setDesc]=useState("First salary"); const [txAmountSim,setTxAmountSim]=useState(50); const [txType,setTxType]=useState<TxType>("income");
+const [page,setPage]=useState(1); const [region,setRegion]=useState<Region>("Asia-Pacific"); const [localCurrency,setLocalCurrency]=useState<CurrencyCode>("IDR"); const [showCurrencyPopup,setShowCurrencyPopup]=useState(false);
+const [filterType,setFilterType]=useState<"all"|TxType>("all"); const [filterCurrency,setFilterCurrency]=useState<"all"|CurrencyCode>("all"); const [filterText,setFilterText]=useState("");
+const [stocks,setStocks]=useState<Stock[]>(STOCKS); const [portfolio,setPortfolio]=useState<Record<string,{qty:number;avg:number}>>({});
+
+useEffect(()=>{getRates("USD").then(setRates);},[]);
+useEffect(()=>{const raw=localStorage.getItem("simoleon-bank-v4"); if(raw){const p=JSON.parse(raw) as {balance:number;txs:Tx[];portfolio:Record<string,{qty:number;avg:number}>}; setBalance(p.balance); setTxs(p.txs); setPortfolio(p.portfolio||{});}},[]);
+useEffect(()=>{localStorage.setItem("simoleon-bank-v4",JSON.stringify({balance,txs,portfolio}));},[balance,txs,portfolio]);
+useEffect(()=>{const id=setInterval(()=>{setStocks(prev=>prev.map(s=>{const drift=(Math.random()-0.5)*0.08; const next=Math.max(1,s.price*(1+drift)); const ch=((next-s.price)/s.price)*100; const h=[...s.history,next].slice(-30); return {...s,price:next,change:ch,history:h};}));},1500); return ()=>clearInterval(id);},[]);
+
+const usdValue=useMemo(()=>fromSimoleon(simoleonInput,1),[simoleonInput]); const displayValue=useMemo(()=>fromSimoleon(simoleonInput,rates[displayCurrency]??1),[simoleonInput,rates,displayCurrency]);
+const filteredTxs=useMemo(()=>txs.filter(t=>(filterType==="all"||t.type===filterType)&&(filterCurrency==="all"||t.localCurrency===filterCurrency)&&(!filterText||t.description.toLowerCase().includes(filterText.toLowerCase()))),[txs,filterType,filterCurrency,filterText]);
+const totalPages=Math.max(1,Math.ceil(filteredTxs.length/PAGE_SIZE)); const rows=filteredTxs.slice((page-1)*PAGE_SIZE,page*PAGE_SIZE);
+const totals=useMemo(()=>{const income=filteredTxs.filter(t=>t.type==="income").reduce((a,b)=>a+b.amountSim,0); const expense=filteredTxs.filter(t=>t.type==="expense").reduce((a,b)=>a+b.amountSim,0); const totalSim=income-expense; const currencyTotals:Partial<Record<CurrencyCode,number>>={}; for(const tx of filteredTxs){const signed=tx.type==="income"?tx.localAmount:-tx.localAmount; currencyTotals[tx.localCurrency]=(currencyTotals[tx.localCurrency]??0)+signed;} return {income,expense,totalSim,currencyTotals};},[filteredTxs]);
+
+function addTx(type:TxType,amountSim:number,description:string,currency:CurrencyCode){const safeRate=rates[currency]??1; const tx:Tx={id:crypto.randomUUID(),date:new Date().toISOString(),description,type,amountSim,localCurrency:currency,localAmount:fromSimoleon(amountSim,safeRate)}; setTxs(prev=>[tx,...prev]);}
+function addTransaction(){if(txAmountSim<=0||Number.isNaN(txAmountSim))return alert("Simoleon amount must be greater than 0."); const nextBalance=balance+(txType==="income"?txAmountSim:-txAmountSim); if(nextBalance<0)return alert("Not enough Simoleon balance."); addTx(txType,txAmountSim,desc.trim()||"(No description)",localCurrency); setBalance(nextBalance); setTxAmountSim(0); setShowCurrencyPopup(false);}
+function tradeStock(symbol:string,mode:"buy"|"sell"){const stock=stocks.find(s=>s.symbol===symbol); if(!stock) return; const lot=10; const cost=stock.price*lot; const hold=portfolio[symbol]?.qty??0; if(mode==="buy"){ if(balance<cost) return alert("Balance not enough to buy 10 lots."); setBalance(b=>b-cost); setPortfolio(p=>({ ...p,[symbol]:{qty:(p[symbol]?.qty??0)+lot,avg:stock.price}})); addTx("expense",cost,`Buy ${lot} ${symbol}`,"USD"); } else { if(hold<lot) return alert("Not enough lots to sell."); setBalance(b=>b+cost); setPortfolio(p=>({ ...p,[symbol]:{qty:(p[symbol]?.qty??0)-lot,avg:p[symbol]?.avg??stock.price}})); addTx("income",cost,`Sell ${lot} ${symbol}`,"USD"); }}
+
+return <div className="container"><header className="simsHeader floatAnim"><h1>Simoleon World Bank</h1><p>Mobile + desktop friendly ledger</p></header>
+<div className="grid"><section className="card"><h2>Simoleon ⇢ Currency Converter</h2><label>Simoleon Input (§)</label><input type="number" value={simoleonInput} onChange={(e)=>setSimoleonInput(Number(e.target.value||0))}/><label>Display Currency</label><select value={displayCurrency} onChange={(e)=>setDisplayCurrency(e.target.value as CurrencyCode)}>{CURRENCIES.map(c=><option key={c}>{c}</option>)}</select><p><strong>§{simoleonInput.toFixed(2)}</strong> = <strong>{formatCurrency(usdValue,"USD")}</strong></p><p>To {displayCurrency}: <strong>{formatCurrency(displayValue,displayCurrency)}</strong></p></section>
+<section className="card"><h2>Player Simoleon Account</h2><p>Available Balance: <span className="badge">§{balance.toFixed(2)}</span></p><label>Type</label><select value={txType} onChange={(e)=>setTxType(e.target.value as TxType)}><option value="income">Income</option><option value="expense">Expense</option></select><label>Simoleon Amount (§)</label><input type="number" value={txAmountSim} onChange={(e)=>setTxAmountSim(Number(e.target.value||0))}/><label>Description</label><input value={desc} onChange={(e)=>setDesc(e.target.value)}/><button onClick={()=>setShowCurrencyPopup(true)}>Choose Local Currency + Add</button></section></div>
+
+<section className="card" style={{marginTop:16}}><h2>Bank Mutation / Statement</h2><div className="filterGrid"><input placeholder="Filter description..." value={filterText} onChange={(e)=>{setFilterText(e.target.value);setPage(1);}}/><select value={filterType} onChange={(e)=>{setFilterType(e.target.value as "all"|TxType);setPage(1);}}><option value="all">All Types</option><option value="income">Income</option><option value="expense">Expense</option></select><select value={filterCurrency} onChange={(e)=>{setFilterCurrency(e.target.value as "all"|CurrencyCode);setPage(1);}}><option value="all">All Currencies</option>{CURRENCIES.map(c=><option key={c}>{c}</option>)}</select></div><div className="tableWrap"><table><thead><tr><th>Date</th><th>Description</th><th>Type</th><th>Local Amount</th><th>Simoleon</th></tr></thead><tbody>{rows.map(t=><tr key={t.id}><td>{new Date(t.date).toLocaleDateString()}</td><td>{t.description}</td><td>{t.type}</td><td>{formatCurrency(t.localAmount,t.localCurrency)} ({t.localCurrency})</td><td>{t.type==="expense"?"-":"+"}§{t.amountSim.toFixed(2)}</td></tr>)}<tr className="summaryRow"><td>-</td><td>-</td><td>Total Income/Expense</td><td>{Object.entries(totals.currencyTotals).map(([c,v])=><div key={c}>{c}: {formatCurrency(v??0,c)}</div>)}</td><td>Income §{totals.income.toFixed(2)} / Expense §{totals.expense.toFixed(2)} / Net §{totals.totalSim.toFixed(2)}</td></tr></tbody></table></div><div className="pager"><button disabled={page<=1} onClick={()=>setPage(p=>p-1)}>Prev</button><span>Page {page}/{totalPages} (5 rows)</span><button disabled={page>=totalPages} onClick={()=>setPage(p=>p+1)}>Next</button></div></section>
+
+<section className="card" style={{marginTop:16}}><h2>SimStock Live Game (Fake)</h2><p>Buy/Sell 10 lots using your Available Balance. Prices update every ~1.5s.</p><div className="tableWrap"><table><thead><tr><th>Stock</th><th>Price (§)</th><th>%</th><th>Chart</th><th>Owned</th><th>Actions</th></tr></thead><tbody>{stocks.map(s=><tr key={s.symbol}><td><strong>{s.symbol}</strong><br/>{s.name}</td><td>§{s.price.toFixed(2)}</td><td style={{color:s.change>=0?'#0c8f35':'#c72a2a'}}>{s.change>=0?'+':''}{s.change.toFixed(2)}%</td><td><div className="spark">{s.history.map((h,i)=><span key={i} style={{height:`${Math.max(6,(h/Math.max(...s.history))*30)}px`}}/>)}</div></td><td>{portfolio[s.symbol]?.qty??0}</td><td><div className="rowActions"><button onClick={()=>tradeStock(s.symbol,'buy')}>Buy</button><button className="secondary" onClick={()=>tradeStock(s.symbol,'sell')}>Sell</button></div></td></tr>)}</tbody></table></div></section>
+
+{showCurrencyPopup&&<div className="modalBackdrop"><div className="modalCard"><h3>Choose Conversion Region & Currency</h3><label>Region</label><select value={region} onChange={(e)=>setRegion(e.target.value as Region)}>{Object.keys(REGION_MAP).map(r=><option key={r}>{r}</option>)}</select><label>Currency</label><select value={localCurrency} onChange={(e)=>setLocalCurrency(e.target.value as CurrencyCode)}>{REGION_MAP[region].map(c=><option key={c}>{c}</option>)}</select><div className="rowActions"><button onClick={addTransaction}>Save Transaction</button><button className="secondary" onClick={()=>setShowCurrencyPopup(false)}>Cancel</button></div></div></div>}
+</div>;
+}
