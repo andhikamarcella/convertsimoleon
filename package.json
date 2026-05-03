@@ -9,9 +9,9 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "next": "16.0.3",
-    "react": "19.2.0",
-    "react-dom": "19.2.0"
+    "next": "latest",
+    "react": "latest",
+    "react-dom": "latest"
   },
   "devDependencies": {
     "typescript": "5.9.3",
@@ -19,7 +19,7 @@
     "@types/react": "19.2.2",
     "@types/react-dom": "19.2.2",
     "eslint": "9.39.1",
-    "eslint-config-next": "16.0.3",
+    "eslint-config-next": "latest",
     "baseline-browser-mapping": "latest"
   }
 }
