@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CURRENCIES, CurrencyCode, formatCurrency, fromSimoleon, getRates, toSimoleon } from "@/lib/currency";
+import { CURRENCIES, CurrencyCode, formatCurrency, fromSimoleon, getRates, toSimoleon } from "../lib/currency";
 
 type TxType = "income" | "expense";
 type Tx = { id: string; date: string; description: string; type: TxType; amountSim: number; currency: CurrencyCode; amountLocal: number };
